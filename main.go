@@ -20,7 +20,6 @@ import (
 
 const (
 	bufferSize = 10000
-	timeWindow = 10 * time.Minute
 )
 
 type CIDRRequestCount struct {
@@ -40,6 +39,7 @@ var (
 	ringMux          sync.Mutex
 	backendHost      string
 	requestThreshold int
+	timeWindow       time.Duration
 )
 
 func main() {
@@ -53,9 +53,18 @@ func main() {
 	threshold := os.Getenv("REQUEST_THRESHOLD")
 	requestThreshold, err = strconv.Atoi(threshold)
 	if err != nil {
-		slog.Warn("Setting default threshold")
+		slog.Warn("Setting default threshold (100 requests)")
 		requestThreshold = 100
 	}
+
+	window := os.Getenv("REQUEST_WINDOW")
+	requestWindow, err := strconv.Atoi(window)
+	if err != nil {
+		slog.Warn("Setting default requestWindow (600s)")
+		requestWindow = 600
+	}
+
+	timeWindow = time.Duration(requestWindow) * time.Second
 
 	ringBuffer.SetCapacity(bufferSize)
 
