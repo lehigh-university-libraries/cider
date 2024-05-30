@@ -67,9 +67,5 @@ jobs:
         run: |
           sleep 10
           curl -v http://127.0.0.1:8080
-
-      - name: Stop Docker container
-        if: always()
-        run: |
-          docker stop cider
-          docker network rm github_network
+          docker container ls
+          docker logs cider

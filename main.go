@@ -106,9 +106,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			i1,
 			i2,
 		},
-		OriginalHost: []string{
-			r.Host,
-		},
 	}
 	rp.ServeHTTP(w, r)
 }
