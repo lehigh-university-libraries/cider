@@ -61,11 +61,17 @@ func main() {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	ip := r.RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		slog.Error("Unable to get IP from IP:port", "ip", ip)
+		http.Error(w, "Invalid remote address", http.StatusInternalServerError)
+		return
+	}
 	cidr, err := GetCIDR(ip)
 	if err != nil {
 		slog.Error("Unable to get CIDR from IP", "ip", ip)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 
 	ringMux.Lock()
