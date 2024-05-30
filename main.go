@@ -76,10 +76,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	if requestCount.Count >= requestThreshold {
 		http.Redirect(w, r, "/captcha", http.StatusFound)
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Continue processing"))
+		return
 	}
+
+	// proxy
 }
 
 func GetCIDR(ip string) (string, error) {
