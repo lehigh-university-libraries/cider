@@ -6,14 +6,6 @@ permissions:
 jobs:
   lint-test:
     runs-on: ubuntu-latest
-    services:
-      nginx:
-        image: nginx:latest
-        options: >-
-          --health-cmd "curl --fail http://localhost || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 3
     steps:
       - uses: actions/checkout@v4
 
@@ -32,37 +24,64 @@ jobs:
 
       - name: Test with the Go CLI
         run: go test -v ./...
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
-      - name: Build Docker image
-        run: docker build -t cider:latest .
-
-      - name: Create Docker network
-        run: docker network create github_network
-
-      - name: Run Docker container
-        run: |
-          docker run -d \
-            --name cider \
-            --env BACKEND_HOST=nginx \
-            --network github_network \
-            --rm \
-            -p 8080:8080 \
-            cider:latest
-
-      - name: Connect Nginx to network
-        run: docker network connect github_network $(docker ps -q -f ancestor=nginx:latest)
-
+  build-push:
+    needs: [lint-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - uses: 'actions/checkout@v4'
+    - name: Extract branch name
+      shell: bash
+      run: echo "branch=${GITHUB_REF#refs/heads/}"  >> $GITHUB_OUTPUT
+      id: extract_branch
+    - name: Extract tag name
+      shell: bash
+      run: |-
+        t=$(echo ${GITHUB_SHA} | cut -c1-7)
+        echo "tag=$t" >> $GITHUB_OUTPUT
+      id: extract_tag
+    - id: 'auth'
+      name: 'Authenticate to Google Cloud'
+      uses: 'google-github-actions/auth@v1'
+      with:
+        workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+        create_credentials_file: true
+        service_account: ${{ secrets.GSA }}
+        token_format: 'access_token'
+    - uses: 'docker/login-action@v3'
+      name: 'Docker login'
+      with:
+        registry: 'us-docker.pkg.dev'
+        username: 'oauth2accesstoken'
+        password: '${{ steps.auth.outputs.access_token }}'
+    - name: Build and push
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          us-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/public/cider:${{steps.extract_branch.outputs.branch}}-${{steps.extract_tag.outputs.tag}}
+          us-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/public/cider:${{steps.extract_branch.outputs.branch}}
+  integration-test:
+    needs: [build-push]
+    runs-on: ubuntu-latest
+    services:
+      nginx:
+        image: nginx:latest
+        options: >-
+          --health-cmd "curl --fail http://localhost || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+      cider:
+        image: us-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/public/cider:${{ github.ref_name }}
+        ports:
+          - 8080
+        env:
+          BACKEND_HOST: nginx
+    steps:
       - name: Test the application
         run: |
           sleep 10
