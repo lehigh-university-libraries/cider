@@ -85,6 +85,5 @@ jobs:
       - name: Test the application
         run: |
           sleep 10
-          curl -v http://127.0.0.1:8080
-          docker container ls
-          docker logs cider
+          curl -v http://cider:8080 || echo "No!"
+          docker logs $(docker container ls --format "{{.Names}}" | grep cider)
