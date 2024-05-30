@@ -55,6 +55,7 @@ jobs:
           docker run -d \
             --name cider \
             --env BACKEND_HOST=nginx \
+            --env REQUEST_THRESHOLD=1 \
             --network github_network \
             --rm \
             -p 8080:8080 \
@@ -63,7 +64,9 @@ jobs:
       - name: Test the application
         run: |
           sleep 10
-          curl -v http://127.0.0.1:8080
+          for i in $(seq 1 10); do
+            curl -v -o /dev/null http://127.0.0.1:8080
+          done
           docker container ls
           docker logs cider
 

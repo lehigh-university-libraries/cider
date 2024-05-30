@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,9 +19,8 @@ import (
 )
 
 const (
-	requestThreshold = 100
-	bufferSize       = 10000
-	timeWindow       = 10 * time.Minute
+	bufferSize = 10000
+	timeWindow = 10 * time.Minute
 )
 
 type CIDRRequestCount struct {
@@ -35,17 +35,26 @@ type ReverseProxy struct {
 }
 
 var (
-	ipRequestCounts = make(map[string]*CIDRRequestCount)
-	ringBuffer      ring.Ring
-	ringMux         sync.Mutex
-	backendHost     string
+	ipRequestCounts  = make(map[string]*CIDRRequestCount)
+	ringBuffer       ring.Ring
+	ringMux          sync.Mutex
+	backendHost      string
+	requestThreshold int
 )
 
 func main() {
+	var err error
 	backendHost = os.Getenv("BACKEND_HOST")
 	if backendHost == "" {
 		slog.Error("Need to know where to proxy successful requests to.")
 		os.Exit(1)
+	}
+
+	threshold := os.Getenv("REQUEST_THRESHOLD")
+	requestThreshold, err = strconv.Atoi(threshold)
+	if err != nil {
+		slog.Warn("Setting default threshold")
+		requestThreshold = 100
 	}
 
 	ringBuffer.SetCapacity(bufferSize)
@@ -53,7 +62,7 @@ func main() {
 	http.HandleFunc("/", handleRequest)
 
 	slog.Info("Server is running on :8080")
-	err := http.ListenAndServe(":8080", nil)
+	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		slog.Error("Unable to start service")
 		os.Exit(1)
