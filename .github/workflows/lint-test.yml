@@ -64,3 +64,27 @@ jobs:
         tags: |
           us-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/public/cider:${{steps.extract_branch.outputs.branch}}-${{steps.extract_tag.outputs.tag}}
           us-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/public/cider:${{steps.extract_branch.outputs.branch}}
+  integration-test:
+    needs: [build-push]
+    runs-on: ubuntu-latest
+    services:
+      nginx:
+        image: nginx:latest
+        options: >-
+          --health-cmd "curl --fail http://localhost || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+      cider:
+        image: jcorall/cider:latest
+        ports:
+          - 8080:8080
+        env:
+          BACKEND_HOST: nginx
+    steps:
+      - name: Test the application
+        run: |
+          sleep 10
+          curl -v http://127.0.0.1:8080
+          docker container ls
+          docker logs cider
