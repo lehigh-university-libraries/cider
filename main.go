@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -24,13 +28,26 @@ type CIDRRequestCount struct {
 	LastUpdate time.Time
 }
 
+type ReverseProxy struct {
+	Target       *url.URL
+	Ips          []string
+	OriginalHost []string
+}
+
 var (
 	ipRequestCounts = make(map[string]*CIDRRequestCount)
 	ringBuffer      ring.Ring
 	ringMux         sync.Mutex
+	backendHost     string
 )
 
 func main() {
+	backendHost = os.Getenv("BACKEND_HOST")
+	if backendHost == "" {
+		slog.Error("Need to know where to proxy successful requests to.")
+		os.Exit(1)
+	}
+
 	ringBuffer.SetCapacity(bufferSize)
 
 	http.HandleFunc("/", handleRequest)
@@ -79,7 +96,21 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// proxy
+	i1, i2 := ReadUserIP(r)
+	rp := &ReverseProxy{
+		Target: &url.URL{
+			Host:   backendHost,
+			Scheme: "http",
+		},
+		Ips: []string{
+			i1,
+			i2,
+		},
+		OriginalHost: []string{
+			r.Host,
+		},
+	}
+	rp.ServeHTTP(w, r)
 }
 
 func GetCIDR(ip string) (string, error) {
@@ -94,4 +125,45 @@ func GetCIDR(ip string) (string, error) {
 	}
 
 	return ipNet.String(), nil
+}
+
+func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(p.Target)
+			pr.Out.Header["X-Forwarded-For"] = p.Ips
+			pr.SetXForwarded()
+		},
+		// http.DefaultTransport with Timeout/KeepAlive upped from 30s to 120s
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   120 * time.Second,
+				KeepAlive: 120 * time.Second,
+			}).DialContext,
+			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dialer := &net.Dialer{
+					Timeout:   120 * time.Second,
+					KeepAlive: 120 * time.Second,
+				}
+				return tls.DialWithDialer(dialer, network, addr, nil)
+			},
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+
+	proxy.ServeHTTP(w, r)
+}
+
+func ReadUserIP(r *http.Request) (string, string) {
+	realIP := r.Header.Get("X-Real-Ip")
+	lastIP := r.RemoteAddr
+	if realIP == "" {
+		realIP = r.Header.Get("X-Forwarded-For")
+	}
+	return realIP, lastIP
 }
