@@ -24,6 +24,56 @@ jobs:
 
       - name: Test with the Go CLI
         run: go test -v ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build Docker image
+        run: docker build -t cider:latest .
+
+      - name: Create Docker network
+        run: docker network create github_network
+
+      - name: Run nginx
+        run: |
+          docker run -d \
+            --name nginx \
+            --network github_network \
+            --rm \
+            nginx:latest
+
+      - name: Run cider
+        run: |
+          docker run -d \
+            --name cider \
+            --env BACKEND_HOST=nginx \
+            --network github_network \
+            --rm \
+            -p 8080:8080 \
+            cider:latest
+
+      - name: Test the application
+        run: |
+          sleep 10
+          curl -v http://127.0.0.1:8080
+          docker container ls
+          docker logs cider
+
+      - name: Stop Docker container
+        if: always()
+        run: |
+          docker stop cider
+          docker stop nginx
+          docker network rm github_network
+
   build-push:
     needs: [lint-test]
     runs-on: ubuntu-latest
@@ -64,26 +114,4 @@ jobs:
         tags: |
           us-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/public/cider:${{steps.extract_branch.outputs.branch}}-${{steps.extract_tag.outputs.tag}}
           us-docker.pkg.dev/${{ secrets.GCLOUD_PROJECT }}/public/cider:${{steps.extract_branch.outputs.branch}}
-  integration-test:
-    needs: [build-push]
-    runs-on: ubuntu-latest
-    services:
-      nginx:
-        image: nginx:latest
-        options: >-
-          --health-cmd "curl --fail http://localhost || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 3
-      cider:
-        image: jcorall/cider:latest
-        ports:
-          - 8080:8080
-        env:
-          BACKEND_HOST: nginx
-    steps:
-      - name: Test the application
-        run: |
-          sleep 10
-          curl -v http://cider:8080 || echo "No!"
-          docker logs $(docker container ls --format "{{.Names}}" | grep cider)
+  
