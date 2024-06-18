@@ -9,6 +9,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: check valid sh
+        run: shellcheck tests/*.sh
+
       - uses: actions/setup-go@v4
 
       - name: golangci-lint
@@ -25,70 +28,9 @@ jobs:
       - name: Test with the Go CLI
         run: go test -v ./...
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
-      - name: Build Docker image
-        run: docker build -t cider:latest .
-
-      - name: Create Docker network
-        run: docker network create github_network
-
-      - name: Run nginx
+      - name: build-test
         run: |
-          docker run -d \
-            --name nginx \
-            --network github_network \
-            --rm \
-            nginx:latest
-
-      - name: Run cider
-        run: |
-          docker run -d \
-            --name cider \
-            --env BACKEND_HOST=nginx \
-            --env REQUEST_THRESHOLD=1 \
-            --env REQUEST_WINDOW=1 \
-            --network github_network \
-            --rm \
-            -p 8080:8080 \
-            cider:latest
-
-      - name: Test the application
-        run: |
-          sleep 10
-          STATUS=$(curl -s -w '%{http_code}' -o /dev/null http://127.0.0.1:8080)
-          if [ ${STATUS} != "200" ]; then
-            echo "Got non-200 status: $STATUS"
-            exit 1
-          fi
-          STATUS=$(curl -s -w '%{http_code}' -o /dev/null http://127.0.0.1:8080)
-          if [ ${STATUS} != "302" ]; then
-            echo "Got non-302 status: $STATUS"
-            exit 1
-          fi
-          sleep 2
-          STATUS=$(curl -s -w '%{http_code}' -o /dev/null http://127.0.0.1:8080)
-          if [ ${STATUS} != "200" ]; then
-            echo "Got non-200 status: $STATUS"
-            exit 1
-          fi
-          docker logs cider
-
-      - name: Stop Docker container
-        if: always()
-        run: |
-          docker stop cider
-          docker stop nginx
-          docker network rm github_network
+          ./tests/build-test.sh
 
   build-push:
     needs: [lint-test]

@@ -115,7 +115,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	requestCount.Count++
 	requestCount.LastUpdate = now
 
-	if requestCount.Count >= requestThreshold {
+	if requestCount.Count > requestThreshold {
 		http.Redirect(w, r, "/captcha", http.StatusFound)
 		return
 	}
